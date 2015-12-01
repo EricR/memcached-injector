@@ -30,7 +30,6 @@ class MemcacheInjector
 
     def send(data)
       write(data)
-
       read[0..-8].split("\r\n")
     end
 
@@ -43,7 +42,6 @@ class MemcacheInjector
 
   class NoOpEncoder
     def encode(data); data; end
-
     def decode(data); data; end
   end
 
