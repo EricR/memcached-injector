@@ -152,8 +152,8 @@ slabs  = Array.new
 
 puts "\r\n"
 puts "Starting MemcacheInjector..."
-puts "\r\n"
 
+puts ""
 puts "General Stats"
 puts "-------------"
 
@@ -161,14 +161,16 @@ client.get_general_stats.each do |stat, val|
   puts "#{stat}: #{val}"
 end
 
-puts "\r\nActive Connections"
+puts ""
+puts "Active Connections"
 puts "------------------"
 
 client.get_active_connections.each do |i, stat|
   puts "#{stat['addr']} in #{stat['state']} state for #{stat['secs_since_last_cmd']}s"
 end
 
-puts "\r\nSlab Stats"
+puts ""
+puts "Slab Stats"
 puts "----------"
 
 client.get_slab_info.each do |i, stat|
@@ -177,7 +179,8 @@ client.get_slab_info.each do |i, stat|
   puts "##{i}: #{stat['used_chunks']}/#{stat['total_chunks']} chunks (allocated #{memory}B)"
 end
 
-puts "\r\nDump Tool"
+puts ""
+puts "Dump Tool"
 puts "---------"
 
 slabs.each do |i|
