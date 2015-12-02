@@ -68,17 +68,18 @@ class MemcacheInjector
     end
   end
 
-  def initialize(host, port, mode, payload, opts = {})
+  attr_reader :output, :slabs, :keys
+
+  def initialize(host, port, output, opts = {})
     @socket  = SocketWrapper.new(TCPSocket.new(host, port))
     @opts    = {
       encoder: NoOpEncoder.new,
       regex: nil,
       keys_per_slab: 10000
     }.merge(opts)
-    @mode    = mode
-    @payload = payload
+    @output  = output
     @conns   = Array.new
-    @slabs   = Array.new
+    @slabs   = Hash.new
     @keys    = Array.new
   end
 
@@ -105,7 +106,7 @@ class MemcacheInjector
 
   def get_slab_info
     slabs = get_stats_of_type(:slabs)
-    @slabs << slabs
+    @slabs.merge!(slabs)
     slabs
   end
 
@@ -119,6 +120,10 @@ class MemcacheInjector
 
     @keys << keys
     keys
+  end
+
+  def write_keys_to_output
+    @output.print(@keys.join("\r\n"))
   end
 
   private
@@ -147,19 +152,12 @@ class MemcacheInjector
   end
 end
 
-client = MemcacheInjector.new(ARGV[0], ARGV[1], :dump, "<script>alert('memcache_injector');</script>")
-slabs  = Array.new
+client = MemcacheInjector.new(ARGV[0],
+                              ARGV[1],
+                              File.new(ARGV[2], 'w+'))
 
 puts "\r\n"
 puts "Starting MemcacheInjector..."
-
-puts ""
-puts "General Stats"
-puts "-------------"
-
-client.get_general_stats.each do |stat, val|
-  puts "#{stat}: #{val}"
-end
 
 puts ""
 puts "Active Connections"
@@ -174,7 +172,6 @@ puts "Slab Stats"
 puts "----------"
 
 client.get_slab_info.each do |i, stat|
-  slabs << i
   memory = stat['chunk_size'].to_i * stat['chunks_per_page'].to_i * stat['total_pages'].to_i
   puts "##{i}: #{stat['used_chunks']}/#{stat['total_chunks']} chunks (allocated #{memory}B)"
 end
@@ -183,11 +180,14 @@ puts ""
 puts "Dump Tool"
 puts "---------"
 
-slabs.each do |i|
+client.slabs.each do |i, slab|
   print "Starting dump of keys in slab ##{i}..."
   dump = client.dump_keys_from_slab(i)
   puts " Got #{dump.count} key(s)."
 end
+
+puts "Exporting found keys to #{client.output.path}..."
+client.write_keys_to_output
 
 puts ""
 puts "Finished running MemcacheInjector."
