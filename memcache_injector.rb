@@ -71,17 +71,16 @@ class MemcacheInjector
 
   attr_reader :output, :slabs, :keys
 
-  def initialize(host, port, output, opts = {})
-    @socket  = SocketWrapper.new(TCPSocket.new(host, port))
-    @opts    = {
-      encoder: NoOpEncoder.new,
-      regex: nil,
-      keys_per_slab: 10000
-    }.merge(opts)
-    @output  = output
-    @conns   = Array.new
-    @slabs   = Hash.new
-    @keys    = Array.new
+  def initialize(options)
+    @socket      = SocketWrapper.new(TCPSocket.new(options[:target], options[:port] || 11211))
+    @encoder     = options[:encoder] || NoOpEncoder.new
+    @regex_k     = options[:keys]
+    @regex_v     = options[:values]
+    @keys_p_slab = options[:keys_per_slab] || 10000
+    @output      = options[:output] && File.new(options[:output], 'w+') || STDOUT
+    @conns       = Array.new
+    @slabs       = Hash.new
+    @keys        = Array.new
   end
 
   def get_general_stats
@@ -112,7 +111,7 @@ class MemcacheInjector
   end
 
   def dump_keys_from_slab(i)
-    items = @socket.send_and_expect_list("stats cachedump #{i} #{@opts[:keys_per_slab]}", :item)
+    items = @socket.send_and_expect_list("stats cachedump #{i} #{@keys_p_slab}", :item)
     keys = []
 
     items.each do |item|
@@ -123,8 +122,8 @@ class MemcacheInjector
     keys
   end
 
-  def write_keys_to_output
-    @output.print(@keys.join("\r\n"))
+  def write_slabs_to_output
+    @output.write @keys.join("\r\n")
   end
 
   private
@@ -172,10 +171,10 @@ subcommands = {
       options[:output] = file
     end
     opts.on("-k", "--key [REGEX]", Regexp, "Regex to filter keys by") do |regex|
-      options[:key] = regex
+      options[:keys] = regex
     end
     opts.on("-v", "--value [REGEX]", Regexp, "Regex to filter values by") do |regex|
-      options[:value] = regex
+      options[:values] = regex
     end
   end,
   "inject" => OptionParser.new do |opts|
@@ -192,10 +191,10 @@ subcommands = {
       options[:payload] = str
     end
     opts.on("-k", "--key [REGEX]", Regexp, "Regex to filter keys by") do |regex|
-      options[:key] = regex
+      options[:keys] = regex
     end
     opts.on("-v", "--value [REGEX]", Regexp, "Regex to filter values by") do |regex|
-      options[:value] = regex
+      options[:values] = regex
     end
   end,
   "stats" => OptionParser.new do |opts|
@@ -224,14 +223,16 @@ when "dump"
     exit
   end
 
+  client = MemcacheInjector.new(options)
+
+  client.get_slab_info
   client.slabs.each do |i, slab|
     print "Starting dump of keys in slab ##{i}..."
     dump = client.dump_keys_from_slab(i)
     puts " Got #{dump.count} key(s)."
   end
 
-  puts "Exporting found keys to #{client.output.path}..."
-  client.write_keys_to_output
+  client.write_slabs_to_output
 
 when "inject"
   unless options.keys.include?(:target) && options.keys.include?(:payload)
@@ -245,7 +246,7 @@ when "stats"
     exit
   end
 
-  client = MemcacheInjector.new(options["target"], 11211, nil)
+  client = MemcacheInjector.new(options)
 
   puts ""
   puts "------------------"
