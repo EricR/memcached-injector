@@ -232,16 +232,19 @@ when "dump"
 
   puts "Exporting found keys to #{client.output.path}..."
   client.write_keys_to_output
+
 when "inject"
   unless options.keys.include?(:target) && options.keys.include?(:payload)
     puts subcommands["inject"].help
     exit
   end
+
 when "stats"
   unless options.keys.include?(:target)
     puts subcommands["stats"].help
     exit
   end
+
   client = MemcacheInjector.new(options["target"], 11211, nil)
 
   puts ""
@@ -263,5 +266,6 @@ when "stats"
     puts "##{i}: #{stat['used_chunks']}/#{stat['total_chunks']} chunks (allocated #{memory}B)"
   end
 else
+  # Unrecognized command
   puts subcommands[:_].help
 end
