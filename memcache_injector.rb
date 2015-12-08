@@ -1,6 +1,7 @@
 require 'uri'
 require 'zlib'
 require 'socket'
+require 'optparse'
 
 class MemcacheInjector
   class SocketWrapper
@@ -152,42 +153,115 @@ class MemcacheInjector
   end
 end
 
-client = MemcacheInjector.new(ARGV[0],
-                              ARGV[1],
-                              File.new(ARGV[2], 'w+'))
+options = {}
+subcommands = {
+  :_ => OptionParser.new do |opts|
+    opts.banner = "Usage: memcached_injector dump|inject|stats [options]"
+  end,
+  "dump" => OptionParser.new do |opts|
+    opts.banner = "Dumps the contents of a memcached instance\r\n\r\n" +
+                  "Usage: memcached_injector dump options"
+    opts.on("-h", "--help", "Display this message") do
+      puts opts
+      exit
+    end
+    opts.on("-t", "--target HOSTNAME", String, "Target hostname") do |hostname|
+      options[:target] = hostname
+    end
+    opts.on("-o", "--out [FILE]", String, "File to write dump to") do |file|
+      options[:output] = file
+    end
+    opts.on("-k", "--key [REGEX]", Regexp, "Regex to filter keys by") do |regex|
+      options[:key] = regex
+    end
+    opts.on("-v", "--value [REGEX]", Regexp, "Regex to filter values by") do |regex|
+      options[:value] = regex
+    end
+  end,
+  "inject" => OptionParser.new do |opts|
+    opts.banner = "Injects a payload into contents of a memcached instance\r\n\r\n" +
+                  "Usage: memcached_injector inject options"
+    opts.on("-h", "--help", "Display this message") do
+      puts opts
+      exit
+    end
+    opts.on("-t", "--target HOSTNAME", String, "Target hostname") do |hostname|
+      options[:target] = hostname
+    end
+    opts.on("-p", "--payload STRING", String, "Payload") do |str|
+      options[:payload] = str
+    end
+    opts.on("-k", "--key [REGEX]", Regexp, "Regex to filter keys by") do |regex|
+      options[:key] = regex
+    end
+    opts.on("-v", "--value [REGEX]", Regexp, "Regex to filter values by") do |regex|
+      options[:value] = regex
+    end
+  end,
+  "stats" => OptionParser.new do |opts|
+    opts.banner = "Usage: memcached_injector stats options"
+    opts.on("-h", "--help", "Display this message") do
+      puts opts
+      exit
+    end
+    opts.on("-t", "--target HOSTNAME", String, "Target hostname") do |hostname|
+      options[:target] = hostname
+    end
+  end
+}
 
-puts "\r\n"
-puts "Starting MemcacheInjector..."
+subcommands[:_].order!
+subcommand = ARGV.shift
 
-puts ""
-puts "Active Connections"
-puts "------------------"
-
-client.get_active_connections.each do |i, stat|
-  puts "#{stat['addr']} in #{stat['state']} state for #{stat['secs_since_last_cmd']}s"
+if subcommands[subcommand]
+  subcommands[subcommand].order!
 end
 
-puts ""
-puts "Slab Stats"
-puts "----------"
+case subcommand
+when "dump"
+  unless options.keys.include?(:target)
+    puts subcommands["dump"].help
+    exit
+  end
 
-client.get_slab_info.each do |i, stat|
-  memory = stat['chunk_size'].to_i * stat['chunks_per_page'].to_i * stat['total_pages'].to_i
-  puts "##{i}: #{stat['used_chunks']}/#{stat['total_chunks']} chunks (allocated #{memory}B)"
+  client.slabs.each do |i, slab|
+    print "Starting dump of keys in slab ##{i}..."
+    dump = client.dump_keys_from_slab(i)
+    puts " Got #{dump.count} key(s)."
+  end
+
+  puts "Exporting found keys to #{client.output.path}..."
+  client.write_keys_to_output
+when "inject"
+  unless options.keys.include?(:target) && options.keys.include?(:payload)
+    puts subcommands["inject"].help
+    exit
+  end
+when "stats"
+  unless options.keys.include?(:target)
+    puts subcommands["stats"].help
+    exit
+  end
+  client = MemcacheInjector.new(options["target"], 11211, nil)
+
+  puts ""
+  puts "------------------"
+  puts "Active Connections"
+  puts "------------------"
+
+  client.get_active_connections.each do |i, stat|
+    puts "#{stat['addr']} in #{stat['state']} state for #{stat['secs_since_last_cmd']}s"
+  end
+
+  puts ""
+  puts "----------"
+  puts "Slab Stats"
+  puts "----------"
+
+  client.get_slab_info.each do |i, stat|
+    memory = stat['chunk_size'].to_i * stat['chunks_per_page'].to_i * stat['total_pages'].to_i
+    puts "##{i}: #{stat['used_chunks']}/#{stat['total_chunks']} chunks (allocated #{memory}B)"
+  end
+else
+  puts subcommands[:_].help
 end
-
-puts ""
-puts "Dump Tool"
-puts "---------"
-
-client.slabs.each do |i, slab|
-  print "Starting dump of keys in slab ##{i}..."
-  dump = client.dump_keys_from_slab(i)
-  puts " Got #{dump.count} key(s)."
-end
-
-puts "Exporting found keys to #{client.output.path}..."
-client.write_keys_to_output
-
-puts ""
-puts "Finished running MemcacheInjector."
